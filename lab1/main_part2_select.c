@@ -9,19 +9,14 @@
 #include <sys/select.h> // select()
 #include <poll.h> // poll()
 #include <time.h>
-int processError()
-{
-    fprintf(stderr, "Error: %s", strerror(errno));
-    exit(1);
-}
 
 int main(int argc, char * argv[])
 {
     if (argc < 2)
     {
-        errno = EINVAL; // errno doesn't know that argc < 3 is an EINVAL error.
-        fprintf(stderr, "%s: provide string identifier\n", strerror(errno));
-        return 1;
+        errno = EINVAL;
+        perror("Provide string identifier");
+        exit(1);
     }
     else
     {
@@ -36,20 +31,29 @@ int main(int argc, char * argv[])
             read_timeout.tv_sec = 5;
             read_timeout.tv_usec = 0;
             int select_result = select(n_fds, &read_fds, NULL, NULL, &read_timeout);
-            if (select_result > 0) // ok
+            if (select_result > 0) // data
             {
-                char buffer[buffer_size + 1];
+                char buffer[buffer_size];
                 ssize_t read_bytes;
-                if ((read_bytes = read(STDIN_FILENO, buffer, buffer_size - 1)) >= 0)
+                while (1) // for EINTR processing
                 {
+                    if ((read_bytes = read(STDIN_FILENO, buffer, buffer_size - 1)) < 0)
+                    {
+                        if (errno == EINTR)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            perror("Error while reading stdin");
+                            exit(1);
+                        }
+                    }
                     buffer[read_bytes] = '\0';
                     printf("[%s] %s", argv[1], buffer);
                     break;
                 }
-                else
-                {
-                    processError();
-                }
+                break;
             }
             else if (select_result == 0) // timeout
             {
@@ -58,7 +62,8 @@ int main(int argc, char * argv[])
             }
             else // error
             {
-                processError();
+                perror("Error while select()");
+                exit(1);
             }
         }
     }

@@ -8,19 +8,14 @@
 #include <string.h> // strerror()
 #include <sys/select.h> // select()
 #include <poll.h> // poll()
-void processErrorWithFile(char * arg)
-{
-    fprintf(stderr, "%s: '%s'\n", strerror(errno), arg);
-    exit(1);
-}
 
 int main(int argc, char * argv[])
 {
     if (argc < 3)
     {
-        errno = EINVAL; // errno doesn't know that argc < 3 is an EINVAL error.
-        fprintf(stderr, "%s: provide input file and output file\n", strerror(errno));
-        return 1;
+        errno = EINVAL; // 'custom' EINVAL error.
+        perror("Provide input and output file");
+        exit(1);
     }
     else
     {
@@ -28,7 +23,7 @@ int main(int argc, char * argv[])
         int fd_input;
         int fd_output;
         int flags_input = O_RDONLY;
-        int flags_output = O_WRONLY | O_TRUNC | O_CREAT; // O_CREAT flag instead of creat()
+        int flags_output = O_WRONLY | O_TRUNC | O_CREAT;
         mode_t mode = 0644;
         ssize_t read_bytes;
         ssize_t written_bytes;
@@ -39,15 +34,29 @@ int main(int argc, char * argv[])
         // shift: -32 bit [a -> A, b -> B]
         if (fd_input < 0)
         {
-            processErrorWithFile(argv[1]);
+            perror("Error while opening input file");
+            exit(1);
         }
         fd_output = open(argv[2], flags_output, mode);
         if (fd_output < 0)
         {
-            processErrorWithFile(argv[2]);
+            perror("Error while opening output file");
+            exit(1);
         }
-        while ((read_bytes = read(fd_input, buffer, buffer_size)) > 0)
+        while ((read_bytes = read(fd_input, buffer, buffer_size)) != 0)
         {
+            if (read_bytes < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                else
+                {
+                    perror("Error while reading input file");
+                    exit(1);
+                }
+            }
             for (size_t i = 0; i < buffer_size; i++)
             {
                 if (buffer[i] >= 97 && buffer[i] <= 122)
@@ -58,17 +67,25 @@ int main(int argc, char * argv[])
             written_bytes = write(fd_output, buffer, read_bytes);
             if (written_bytes != read_bytes)
             {
-                processErrorWithFile(argv[2]);
+                perror("Error while writing to output file");
+                exit(1);
             }
             total_bytes += written_bytes;
         }
-        if (read_bytes < 0 || close(fd_input) < 0)
+        if (close(fd_input) < 0)
         {
-            processErrorWithFile(argv[1]);
+            perror("Error while closing input file");
+            exit(1);
+        }
+        if (fsync(fd_output) < 0)
+        {
+            perror("Error while syncing output file");
+            exit(1);
         }
         if (close(fd_output) < 0)
         {
-            processErrorWithFile(argv[2]);
+            perror("Error while closing output file");
+            exit(1);
         }
         printf("Total number of bytes written: %li\n", total_bytes);
     }
